@@ -62,7 +62,6 @@ All results merge into a unified vulnerability list.
 
     
 
-
 # 🔧 Installation
 
 Requires Python 3.8+.
@@ -74,11 +73,6 @@ Requires Python 3.8+.
 ## Make script executable:
 
 ```chmod +x wp_mega_enum.py```
-
-## Make script executable:
-
-```chmod +x wp_mega_enum.py```
-
 
 
 ## 🕹 Usage Examples
@@ -110,7 +104,7 @@ python3 wp_mega_enum.py -i urls.txt \
 ### Disable colors:
 ```python3 wp_mega_enum.py --no-color -i urls.txt```
 
-### 📁 Local CVE JSON Format
+## 📁 Local CVE JSON Format
 
 * Example cves.json:
 
