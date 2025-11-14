@@ -72,19 +72,19 @@ Requires Python 3.8+.
 
 ## Make script executable:
 
-```chmod +x wp_mega_enum.py```
+```chmod +x WPmegascanner.py```
 
 
 ## 🕹 Usage Examples
 
 ### Basic scan:
-```python3 wp_mega_enum.py -i subdomains.txt -o results.csv```
+```python3 WPmegascanner.py -i subdomains.txt -o results.csv```
 
 ### Scan a domain via CRT.sh:
-```python3 wp_mega_enum.py --crtsh example.com -o enum.csv```
+```python3 WPmegascanner.py --crtsh example.com -o enum.csv```
 
 ### List CRT.sh results only:
-```python3 wp_mega_enum.py --crtsh example.com --list-only```
+```python3 WPmegascanner.py --crtsh example.com --list-only```
 
 ### Enable all vulnerability engines:
 
@@ -102,7 +102,7 @@ python3 wp_mega_enum.py -i urls.txt \
 
 
 ### Disable colors:
-```python3 wp_mega_enum.py --no-color -i urls.txt```
+```python3 WPmegascanner.py --no-color -i urls.txt```
 
 ## 📁 Local CVE JSON Format
 
@@ -122,7 +122,7 @@ python3 wp_mega_enum.py -i urls.txt \
 
 * Use with:
 
-```python3 wp_mega_enum.py -i urls.txt --use-local-cve cves.json```
+```python3 WPmegascanner.py -i urls.txt --use-local-cve cves.json```
 
 ### 🧪 Example Console Output
 
