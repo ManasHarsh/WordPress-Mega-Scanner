@@ -89,7 +89,7 @@ Requires Python 3.8+.
 ### Enable all vulnerability engines:
 
 ```bash
-python3 wp_mega_enum.py -i urls.txt \
+python3 WPmegascanner.py -i urls.txt \
   --use-wpvuln \
   --use-wpscan --wpscan-api-key YOUR_API_KEY \
   --use-vulncheck \
