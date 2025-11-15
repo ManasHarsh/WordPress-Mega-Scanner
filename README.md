@@ -47,6 +47,7 @@ All results merge into a unified vulnerability list.
 ## ⚙️ Input Options
 
 * File input (-i file.txt)
+* Single URL input (-u www.example.com)
 * CRT.sh passive enumeration (--crtsh example.com)
 * Host limiting (--max-hosts N)
 * CRT.sh listing only (--list-only)
