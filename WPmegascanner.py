@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
-# wp_mega_enum.py
+# WPmegascanner.py
 #
 # ALL-IN-ONE passive WordPress enumerator + vulnerability intelligence
 # Includes:
@@ -19,7 +19,6 @@
 #   - Outputs: CSV, TXT, JSON + colored console
 #   - Safe: passive, no exploitation, no brute force
 #
-# NOTE: This is PART 1 of 7 — paste into the full file.
 
 import argparse
 import concurrent.futures
@@ -34,6 +33,8 @@ import socket
 import ssl
 from pathlib import Path
 from urllib.parse import urljoin, urlencode
+from hashlib import sha1
+from datetime import datetime, timedelta
 
 try:
     import requests
@@ -82,10 +83,12 @@ DEFAULT_MAX_HOSTS = 500
 
 HEADERS = {"User-Agent": USER_AGENT}
 
-# Passive exposure checks will be defined later in Part 3
-
 # CRT.sh endpoint
 CRT_SH_URL = "https://crt.sh/?q=%25.{domain}&output=json"
+
+# Cache configuration
+CACHE_DIR = Path(".cache")
+CACHE_TTL = timedelta(hours=24)
 
 # ---------------------------------------------------------
 #  ARG PARSER
@@ -97,6 +100,7 @@ def build_arg_parser():
     )
 
     # Input sources
+    p.add_argument("-u", "--url", help="Single URL to scan")
     p.add_argument("-i", "--input", help="Input file: one domain/URL per line")
     p.add_argument("--crtsh", help="Passive domain enumeration using crt.sh")
     p.add_argument("--list-only", action="store_true",
@@ -106,8 +110,9 @@ def build_arg_parser():
 
     # Output
     p.add_argument("-o", "--output", default="mega_enum.csv",
-                   help="CSV output file")
-    p.add_argument("-x", "--txt", help="TXT output file")
+                   help="CSV output file (default: mega_enum.csv)")
+    p.add_argument("-x", "--txt", default="mega_enum.txt",
+                   help="TXT output file (default: mega_enum.txt)")
     p.add_argument("--json", help="JSON output file")
 
     # API usage flags
@@ -196,14 +201,13 @@ def fetch_crtsh(domain: str):
             hosts.add(m.strip().lstrip("*."))
 
     return sorted(hosts)
+
 # =========================================================
-#  PART 3 — EXPOSURE CHECKS (CONFIG LEAKS, BACKUPS, LOGS,
+#  EXPOSURE CHECKS (CONFIG LEAKS, BACKUPS, LOGS,
 #            DIRECTORY LISTING, INSTALLERS, SENSITIVE FILES)
 # =========================================================
 
 # List of passive endpoints that often expose sensitive info.
-# These checks are NON-DESTRUCTIVE. They only perform GET/HEAD requests.
-
 EXPOSURE_PATHS = {
     # Core leaks / backups
     "/wp-config.php.bak":         "Backup wp-config.php (CRITICAL)",
@@ -293,12 +297,13 @@ def run_exposure_checks(canonical_url: str):
                 findings.append(f"{path} -> {description}")
 
     return findings
+
 # =========================================================
-#  PART 4 — PLUGIN & THEME ENUMERATION
+#  PLUGIN & THEME ENUMERATION
 #         (LIGHTWEIGHT + DEEP FINGERPRINTING)
 # =========================================================
 
-# Popular WordPress plugins & themes — used to attempt slug detection.
+# Popular WordPress plugins & themes
 POPULAR_PLUGINS = [
     "akismet", "wordfence", "contact-form-7", "woocommerce",
     "jetpack", "yoast-seo", "elementor", "revslider",
@@ -339,10 +344,7 @@ THEME_CHECK_PATHS_DEEP = [
 ]
 
 
-# -----------------------------
-#  Version extraction helpers
-# -----------------------------
-
+# Version extraction helpers
 PLUGIN_VERSION_RE = re.compile(
     r"(?:Version|Stable tag)\s*[:=]\s*([0-9]+\.[0-9]+(?:\.[0-9]+)?)",
     re.IGNORECASE
@@ -373,10 +375,6 @@ def extract_theme_version(text: str):
         return m.group(1)
     return None
 
-
-# -----------------------------
-#  ENUMERATION FUNCTIONS
-# -----------------------------
 
 def check_plugin_slug(canonical, slug, deep=False):
     """Check if a plugin slug exists and optionally fingerprint deeply."""
@@ -464,17 +462,13 @@ def enumerate_plugins_and_themes(canonical_url, deep=False):
     detected_plugins = {}
     detected_themes = {}
 
-    # -------------------------
-    #  PLUGIN DISCOVERY
-    # -------------------------
+    # PLUGIN DISCOVERY
     for slug in POPULAR_PLUGINS:
         res = check_plugin_slug(canonical_url, slug, deep=deep)
         if res:
             detected_plugins[slug] = res
 
-    # -------------------------
-    #  THEME DISCOVERY
-    # -------------------------
+    # THEME DISCOVERY
     for slug in POPULAR_THEMES:
         res = check_theme_slug(canonical_url, slug, deep=deep)
         if res:
@@ -484,17 +478,11 @@ def enumerate_plugins_and_themes(canonical_url, deep=False):
         "plugins": detected_plugins,
         "themes": detected_themes
     }
+
 # =========================================================
-#  PART 5 — VULNERABILITY INTELLIGENCE ENGINES
+#  VULNERABILITY INTELLIGENCE ENGINES
 #         (WPVulnerability, WPScan, VulnCheck, NVD, Local)
 # =========================================================
-
-from hashlib import sha1
-from datetime import datetime, timedelta
-
-CACHE_DIR = Path(".cache")
-CACHE_TTL = timedelta(hours=24)
-
 
 # ---------------------------------------------------------
 #  CACHE HANDLING
@@ -585,8 +573,6 @@ def query_wpvuln_core(version):
         r = requests.get(url, headers=HEADERS, timeout=10)
         if r.status_code == 200:
             data = r.json()
-            # The API returns vulnerabilities for all versions;
-            # We filter locally.
             vulns = [
                 v for v in data.get("vulnerabilities", [])
                 if v.get("affected_versions") and version in v["affected_versions"]
@@ -735,7 +721,6 @@ def query_nvd(keyword):
         r = requests.get(NVD_BASE, params=params, headers=HEADERS, timeout=10)
         if r.status_code == 200:
             data = r.json()
-            # Simple flatten of CVE data
             vulns = []
             for v in data.get("vulnerabilities", []):
                 cve = v.get("cve", {})
@@ -775,8 +760,9 @@ def lookup_local_cve(local_map, key):
             else:
                 hits.append(v)
     return hits
+
 # =========================================================
-#  PART 6 — RESULT AGGREGATION & OUTPUT WRITERS
+#  RESULT AGGREGATION & OUTPUT WRITERS
 # =========================================================
 
 def merge_vulns(*lists):
@@ -895,58 +881,147 @@ def write_json(path, rows):
 
 
 # ---------------------------------------------------------
-#  PRETTY CONSOLE OUTPUT
+#  PRINT PRETTY RESULT (CONSOLE OUTPUT)
 # ---------------------------------------------------------
 
-def print_pretty_result(r):
-    """Nicely formatted colored console output."""
-    print()
-    print(Colors.c("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", Colors.CYAN))
-    print(Colors.c(f"TARGET: {r['host']}", Colors.MAGENTA))
-    print(Colors.c("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", Colors.CYAN))
-
-    if not r["is_wordpress"]:
-        print(Colors.c("Not a WordPress site", Colors.RED))
+def print_pretty_result(result):
+    """Print a nice formatted result to console."""
+    if not result["is_wordpress"]:
+        print(Colors.c(f"[-] {result['host']} -> Not WordPress", Colors.YELLOW))
         return
 
-    print(Colors.c("✔ WordPress detected", Colors.GREEN))
+    print()
+    print(Colors.c(f"[+] {result['host']} -> WordPress Detected", Colors.GREEN))
+    if result.get("canonical"):
+        print(f"    Canonical: {result['canonical']}")
+    if result.get("version"):
+        print(Colors.c(f"    Version: {result['version']}", Colors.CYAN))
+    
+    if result.get("exposures"):
+        print(Colors.c(f"    Exposures: {len(result['exposures'])}", Colors.YELLOW))
+        for exp in result["exposures"][:3]:
+            print(f"      - {exp}")
+        if len(result["exposures"]) > 3:
+            print(f"      ... and {len(result['exposures']) - 3} more")
+    
+    if result.get("plugins"):
+        print(Colors.c(f"    Plugins: {len(result['plugins'])}", Colors.BLUE))
+        for plugin in list(result["plugins"].keys())[:3]:
+            print(f"      - {plugin}")
+        if len(result["plugins"]) > 3:
+            print(f"      ... and {len(result['plugins']) - 3} more")
+    
+    if result.get("themes"):
+        print(Colors.c(f"    Themes: {len(result['themes'])}", Colors.BLUE))
+        for theme in result["themes"]:
+            print(f"      - {theme}")
+    
+    if result.get("vulns"):
+        print(Colors.c(f"    🔴 VULNERABILITIES FOUND: {len(result['vulns'])}", Colors.RED))
+        for vuln in result["vulns"][:5]:
+            if isinstance(vuln, dict):
+                vuln_id = vuln.get("id", "Unknown")
+                desc = vuln.get("description", "")[:80]
+                print(Colors.c(f"      [!] {vuln_id}: {desc}...", Colors.RED))
+            else:
+                print(Colors.c(f"      [!] {str(vuln)[:100]}", Colors.RED))
+        if len(result["vulns"]) > 5:
+            print(Colors.c(f"      ... and {len(result['vulns']) - 5} more vulnerabilities", Colors.RED))
 
-    if r.get("canonical"):
-        print(Colors.c(f"  Canonical URL: {r['canonical']}", Colors.BLUE))
 
-    if r.get("version"):
-        print(Colors.c(f"  Version: {r['version']}", Colors.YELLOW))
-
-    if r.get("evidence"):
-        print(Colors.c("  Evidence:", Colors.CYAN))
-        for e in r["evidence"]:
-            print("    -", Colors.c(e, Colors.WHITE))
-
-    if r.get("exposures"):
-        print(Colors.c("  Exposures:", Colors.RED))
-        for e in r["exposures"]:
-            print("    -", Colors.c(e, Colors.RED))
-
-    if r.get("plugins"):
-        print(Colors.c("  Plugins:", Colors.GREEN))
-        for slug, d in r["plugins"].items():
-            ver = d.get("version") or "?"
-            print(f"    - {slug}  (version={ver})")
-
-    if r.get("themes"):
-        print(Colors.c("  Themes:", Colors.GREEN))
-        for slug, d in r["themes"].items():
-            ver = d.get("version") or "?"
-            print(f"    - {slug}  (version={ver})")
-
-    if r.get("vulns"):
-        print(Colors.c("  Vulnerabilities:", Colors.YELLOW))
-        for v in summarize_vulns(r["vulns"]):
-            print("    -", Colors.c(v, Colors.YELLOW))
-
-    print(Colors.c("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", Colors.CYAN))
 # =========================================================
-#  PART 7 — MAIN RUNNER / ORCHESTRATOR
+#  WORDPRESS DETECTION ENGINE
+# =========================================================
+
+def http_fetch(url: str, method="get", timeout=DEFAULT_TIMEOUT):
+    try:
+        if method == "head":
+            return requests.head(url, headers=HEADERS, timeout=timeout,
+                                 allow_redirects=True, verify=False)
+        return requests.get(url, headers=HEADERS, timeout=timeout,
+                            allow_redirects=True, verify=False)
+    except Exception:
+        return None
+
+
+WP_VERSION_RE = re.compile(
+    r'(?i)(?:wordpress\s*version|wp-version)[\s":=]*([\d.]+)'
+)
+
+GENERATOR_RE = re.compile(
+    r'<meta[^>]+name=["\']generator["\'][^>]+content=["\']([^"\']+)["\']',
+    re.IGNORECASE
+)
+
+def extract_wp_version_from_text(html: str):
+    if not html:
+        return None
+
+    mg = GENERATOR_RE.search(html)
+    if mg:
+        content = mg.group(1).lower()
+        if "wordpress" in content:
+            m = re.search(r"([\d]+\.[\d]+\.[\d]+|[\d]+\.[\d]+)", content)
+            if m:
+                return m.group(1)
+
+    mv = WP_VERSION_RE.search(html)
+    if mv:
+        return mv.group(1)
+
+    return None
+
+
+def detect_wordpress(host: str):
+    result = {
+        "is_wp": False,
+        "canonical": None,
+        "evidence": [],
+        "version": None
+    }
+
+    candidates = []
+    if host.startswith("http://") or host.startswith("https://"):
+        candidates.append(host)
+    else:
+        candidates.extend([f"https://{host}", f"http://{host}"])
+
+    for url in candidates:
+        r = http_fetch(url)
+        if not r:
+            continue
+
+        html = r.text or ""
+
+        if "wp-content/" in html or "wp-includes/" in html:
+            result["is_wp"] = True
+            result["evidence"].append(f"Detected wp-content/wp-includes ({url})")
+
+        xp = r.headers.get("X-Pingback", "")
+        if "xmlrpc.php" in xp:
+            result["is_wp"] = True
+            result["evidence"].append("X-Pingback header referencing xmlrpc.php")
+
+        gen = GENERATOR_RE.search(html)
+        if gen:
+            content = gen.group(1)
+            result["evidence"].append(f"meta generator: {content}")
+            if "wordpress" in content.lower():
+                result["is_wp"] = True
+
+        ver = extract_wp_version_from_text(html)
+        if ver:
+            result["version"] = ver
+            result["evidence"].append(f"Version identified: {ver}")
+
+        if result["is_wp"]:
+            result["canonical"] = url
+            break
+
+    return result
+
+# =========================================================
+#  MAIN RUNNER / ORCHESTRATOR
 # =========================================================
 
 def scan_single_target(host, args, local_cve_map):
@@ -1112,7 +1187,13 @@ def main():
     # ------------------------------------
     hosts = []
 
-    if args.crtsh:
+    if args.url:
+        # Single URL mode
+        normalized = normalize_host(args.url)
+        if normalized:
+            hosts.append(normalized)
+        print(Colors.c(f"[i] Scanning single URL: {normalized}", Colors.BLUE))
+    elif args.crtsh:
         hosts = fetch_crtsh(args.crtsh)
         print(Colors.c(f"[i] Found {len(hosts)} hosts from crt.sh", Colors.BLUE))
 
@@ -1128,7 +1209,7 @@ def main():
     hosts = list(dict.fromkeys(hosts))
 
     if not hosts:
-        print(Colors.c("[!] No hosts to scan.", Colors.RED))
+        print(Colors.c("[!] No hosts to scan. Provide -u/--url, -i/--input, or --crtsh", Colors.RED))
         return
 
     # Enforce max hosts
@@ -1175,11 +1256,16 @@ def main():
     # ------------------------------------
     if args.output:
         write_csv(args.output, results)
+        print(Colors.c(f"[+] Results saved to {args.output}", Colors.GREEN))
+    
     if args.txt:
         write_txt(args.txt, results)
+        print(Colors.c(f"[+] Results saved to {args.txt}", Colors.GREEN))
+    
     if args.json:
         write_json(args.json, results)
 
 
 if __name__ == "__main__":
     main()
+
